@@ -1,5 +1,3 @@
-eval_fc  <- readRDS("data/eval_fc.rds")
-eval_sky <- readRDS("data/eval_sky.rds")
 rab_fin  <- readRDS("data/RaB_final.rds")
 rab_mod  <- readRDS("data/RaB_Modulation_final.rds")
 rab_raw  <- readRDS("data/BA_behav.rds")
@@ -62,3 +60,17 @@ pi_rnd_both <- brm(PI ~ Run * Condition + (1 + Condition * Run || ID), data = ra
 pi_rnd_runs <- readRDS("stanfits/pi_random_runs.rds")
 pi_rnd_cond <- readRDS("stanfits/pi_random_conditions.rds")
 pi_rnd_both <- readRDS("stanfits/pi_random_both.rds")
+
+
+
+####### do the p dance
+r1_mi_lo <- smpl$b_Intercept
+r2_mi_lo <- smpl$b_Intercept + smpl$b_RunRun2
+
+r1_mi_mi <- smpl$b_Intercept + smpl$b_ConditionC_mid_mid
+r2_mi_mi <- smpl$b_Intercept + smpl$b_ConditionC_mid_mid + smpl$b_RunRun2 + smpl$`b_RunRun2:ConditionC_mid_mid`
+
+r1_mi_hi <- smpl$b_Intercept + smpl$b_ConditionD_mid_hi
+r2_mi_hi <- smpl$b_Intercept + smpl$b_ConditionD_mid_hi + smpl$b_RunRun2 + smpl$`b_RunRun2:ConditionD_mid_hi`
+
+mean(r1_mi_hi < r2_mi_hi)
