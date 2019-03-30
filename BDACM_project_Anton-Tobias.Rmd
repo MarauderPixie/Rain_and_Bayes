@@ -1,0 +1,316 @@
+---
+title: "Rain and Bayes"
+author: "Tobias Anton"
+date: "27 March 2019"
+output: 
+  html_document:
+    highlight: kate
+    theme: lumen
+    toc: yes
+    toc_float: yes
+---
+
+```{r init}
+# load required packages (and then some)
+library(tidyverse)
+library(afex)
+library(emmeans)
+library(brms)
+library(rstan)
+# library(ggmcmc)
+
+# make myself feel at home
+theme_set(hrbrthemes::theme_ipsum_rc())
+knitr::opts_chunk$set(out.width = "100%")
+
+# set stan options
+options(mc.cores = parallel::detectCores())
+rstan_options(auto_write = TRUE)
+```
+
+# Introduction & Outline
+
+In my bachelors thesis I helped planning and then conducted and analyzed a decision making (DM) experiment. There are at least two major paradigms present in DM: the _heuristics and biases_ based off Kahnemann & Tversky's research and Gerd Gigerenzers _adaptive toolbox_. It's impossible to honor the vast body of research and knowledge coming from these when summarising them in only one or two sentences, but for brevity's sake: The first paradigm states humans are making decisions by 
+
+
+# The "Rain and Brain" experiment
+
+In the _Rain and Brain_ experiment participants are presented ambiguous information in a relatable (that is, ecologically valid) setting based on which they have to make a decision. The first information is a numerical chance of rain, the second is "a view out the window" depicting varying degrees of cloudyness. Based on these, the participant had to decide on whether to take an umbrella with them or not.  
+
+Further, in this iteration of the experiment, after every decision the participants were shown a short video clip about how the day turned out: either a sunny or rainy day. The introduction of this feedback to the experiment allowed for another experimental modulation:  
+The first and last third of the experimental trials of stimuli/decision/feedback combinations were identical and consisted of congruent forecast/sky trials (low forecast percentages & rather clear sky, or high percentage and rather cloudy sky) with accurate feedback (it actually "rained" on 20% of the trials with a 20% forecast with rather blue sky). The second third, though, showed the complete range of weather forecasts, but only ambiguous sky-pictures and also gave rainy feedback in 90% of the trials regardless and by that increasing the "validity" of the sky-pictures.
+
+An earlier iteration of the Rain and Brain experiment showed, rather non-surprisingly, that people tend to place more weight on either one of the given informations. Or put otherwise: they tend to either follow their guts an rely on the sky pictures or they rather place their trust in the "hard facts" implied by a numerical forecast. The aim of the experiment with the feedback videos was to see if a change in the reliance on the forecast could be facilitatet. 
+
+There are two depent variables in this experiment: the Preference Index (PI) and the Response Time (RT). The PI is simply the relative frequency of decisions in favor of the umbrella, while the RT is the time it took the participants to decide on the situation. While the RT could be used as is, the PI needs to be calculate first. This can be done several ways, depending on the model; by run, by combination of forecast/sky picture or, as was done in the original analysis, by groups of combinations (that have been shown to be reasonable in the previous experiment).
+
+# The data
+
+The data comes in two forms: raw and well done (or more accurate: aggregated and prepared for analysis). I will explain the raw data first, then elaborate on the preparation and finally show the actual data I'll be working with.
+
+## Raw data
+
+```{r inspect_data_raw}
+rab_raw <- readRDS("data/BA_behav.rds")
+
+rab_raw %>% 
+  sample_n(10) 
+```
+
+The data already is in tidy format, but still far from useable. A few words on the columns:
+
+- `ID`: the participant identifier, 20 participants in total
+- `Run`: the stage of the experiment; as stated before, by design there are 3 stages (first & last identical, middle stage modulated), but in order to mask this, there would be 2 Runs with a short break in between
+- `Forecast`: the chance of rain as given by the forecast; from 10% to 90% in steps of 10
+- `Window`: the sky picture, numbers increasing with cloudyness; 9 in total (1 = clear sky, 9 = many dark clouds)
+- `Decision`: the decision made by the participants, sloppily labeled in german
+- `Feedback`: the feedback video shown for that trial (won't be considered in this analysis)
+- `TTime`: the response time in milliseconds
+- `trial_num`: index of trial by `ID` and `Run`
+- `grp`: combination of `Forecast` and `Window` (won't be considered, too)
+
+Next have a look at the discriptives:
+
+```{r descriptives_raw}
+rab_raw %>% 
+  skimr::skim()
+```
+
+And next at the design matrix as of now:
+
+```{r grid_1}
+rab_raw %>% 
+  count(Window, Forecast) %>% 
+  ggplot(aes(Window, Forecast, fill = n)) +
+    geom_tile(color = "white", size = .5) +
+    labs(title = "Number of observations for every combination of stimuli")
+```
+
+## Preparation
+
+As stated before, the data needs to be prepared before being analyzed:
+ 
+- there's no Preference Index to analyze yet:  
+  we need to calculate the relative frequency of umbrella-takings
+- the data contains the modulation-trials:  
+  since we are only interested in the difference in PI before and after the modulation, we need to remove all trials beyond the 165th of the first run and before the 46th of the second run
+- the design matrix is strongly unbalanced:  
+  this can cause huge problems with frequentist ANOVA, so we will aggregate the data into stimulus conditions in order to balance it (even though it's not necessary for BANOVA)
+- no filter criteria have been defined & applied:  
+  participants were asked to make a conscious decision but also not to overthink it, we therefore need to remove all trials with a decision made within 200ms and that took longer than 3 seconds
+
+Furthermore, the observational cells are ordinal (we expect a higher PI with increasing chance of rain), which should be reflected. By recommendation of Prof. Franke, instead of using ordered R `factor`s, the ordinality will be ensured by alphabetical ordering of the labels.
+
+```{r preparation}
+rab <- rab_raw %>% 
+  mutate(
+    forecast = as.numeric(Forecast),
+    Condition   = case_when(forecast <= 3 & Window <= 3 ~ "A_low_low",
+                            forecast <= 3 & Window <= 6 ~ "B_mid_low",
+                            forecast <= 6 & Window <= 6 ~ "C_mid_mid",
+                            forecast > 6 & Window <= 6 ~ "D_mid_hi",
+                            forecast > 6 & Window > 6 ~ "E_hi_hi"),
+    # ifelse Decision bc in the end we want a number between 0 and 1 and 
+    # factors start counting at 1
+    decision = ifelse(Decision == "Schirm", 1, 0)
+  ) %>% 
+  filter((Run == "Run 1" & trial_num <= 165) | 
+           (Run == "Run 2" & trial_num  >  45),
+         between(TTime, 200, 3000)) %>% 
+  group_by(ID, Run, Condition) %>% 
+  summarise(
+    PI = mean(decision),
+    # RT_mean = mean(TTime),
+    RT = median(TTime)
+  ) %>% 
+  ungroup() %>% 
+  mutate(
+    Condition = factor(Condition),
+    ID        = factor(ID)
+  )
+
+sample_n(rab, 10)
+```
+
+Again, we'll look at the design matrix:
+
+```{r grid2}
+rab %>% 
+  mutate(
+    fc = case_when(str_detect(Condition, "A") ~ 1,
+                   str_detect(Condition, "B") ~ 1,
+                   str_detect(Condition, "C") ~ 2,
+                   str_detect(Condition, "D") ~ 3,
+                   str_detect(Condition, "E") ~ 3),
+    sky = case_when(str_detect(Condition, "A") ~ 1,
+                    str_detect(Condition, "B") ~ 2,
+                    str_detect(Condition, "C") ~ 2,
+                    str_detect(Condition, "D") ~ 2,
+                    str_detect(Condition, "E") ~ 3)
+  ) %>% 
+  count(sky, fc) %>% 
+  ggplot(aes(sky, fc, fill = n)) +
+    geom_tile(color = "white", size = .5) +
+    labs(title = "Number of observations for every stimulus condition",
+         x = "Window", y = "Forecast")
+```
+
+## Inspect the prepared data
+
+Having a look at the dependent variables:
+
+```{r dv_hist}
+rab %>% 
+  gather(Variable, val, PI, RT) %>% 
+  ggplot(aes(val, fill = Variable)) +
+    geom_histogram(bins = 21, color = "white") +
+    facet_wrap(~Variable, scales = "free_x")
+```
+
+Looking good for `RT`, not so much for `PI`. What's going on there?
+
+```{r deep_PI_1}
+ggplot(rab, aes(y = PI, x = Condition)) +
+    geom_jitter(size = .2, alpha = .5, height = 0, width = .2) +
+    geom_boxplot(alpha = 0)
+```
+
+If that ain't a ceiling effect, I don't know what is! Not as bad, but still, is "A_low_low". I'll exclude them for the analysis and then look at the change in PI and RT between experimental runs and stimulus conditions:
+
+```{r int_plot}
+rab <- filter(rab, !(Condition %in% c("A_low_low", "E_hi_hi"))) %>% 
+  droplevels()
+
+sum_rab <- rab %>% 
+  gather(Variable, value, PI, RT) %>% 
+  group_by(Run, Condition, Variable) %>% 
+  summarise(
+    mean = mean(value),
+    sd   = sd(value)
+  ) %>% 
+  ungroup()
+
+rab %>% 
+  gather(Variable, value, PI, RT) %>% 
+  ggplot(aes(x = Run, y = value, color = Condition, shape = Condition, group = Condition)) +
+    geom_jitter(position = position_dodge2(width = .5, padding = .1),
+                alpha = .5, size = .5) +
+    geom_pointrange(data = sum_rab, aes(ymin = mean - sd, ymax = mean + sd, 
+                                        y = mean, x = Run, color = Condition),
+                    position = position_dodge2(width = .5, padding = .1)) +
+    facet_wrap(~Variable, scales = "free_y") +
+    scale_color_brewer(palette = "Set1") +
+    labs(title = "Mean & SD of PI & RT by Run and Condition",
+         caption = "single datapoints slightly jittered horizontally",
+         y = "PI in percent / RT in ms")
+```
+
+We can already see some key differences. The PI differs greatly between conditions and seems to increase slightly between runs, which hints at an effect caused by the modulated video-feedback. The RT on the other hand doesn't seem to change much at all, aside from being a bit smaller in Run 2 than in Run 1 and a bit longer in the most ambiguous condition "C_mid_mid" as opposite to the other two.
+
+
+# Analysis
+
+I will analyze the data in three steps:
+
+1. repeat the frequentist analysis I did originally
+2. re-do the analysis in Bayes, then compare results
+3. compare different models
+
+## Repeat Frequentist Analysis
+
+Since this report should be mostly about the bayesian approach, I will skip an in-depth discussion about necessary assumptions and post-hoc procedures for brevity.
+
+In the original analysis, two two-factor-repeated-measures ANOVAs were computed. The two factors are Condition (with levels "mid_low", "mid_mid" and "mid_hi") and Run (1 and 2), with PI and RT being the dependent variable for each model respectively. According to John Kruschkes definition, this is a complete within-subject design, since every subject completes every observational cell of the resulting 2x6 design matrix.
+
+In the case of significant results, post-hoc analyses were conducted by calculating the estimated marginal means with a 95% Confidence Interval.
+
+For this I'll mostly use the `afex` package, which basically simplifies the code a bit and uses Type III Sum of Squares by default, which should be used when expecting an interaction between predictors (which we do). 
+
+```{r pi_aov}
+# Error() declares ID as the within-subject-variable over both Run and Condition
+pi_aov <- aov_car(PI ~ Run * Condition + Error(ID / Run+Condition), rab) 
+
+summary(pi_aov)
+```
+
+In short: looking at the output of the `ANOVA Assuming Sphericity`, because _p_ < .05 in all conditions, we reject the null hypothesis and conclude there to be meaningful differences between runs (_p_ = .002), between conditions (_p_ < .001) and their interaction (_p_ = .034).
+
+In long: In repeated measures ANOVA, not only homogenity of variance is important, but also sphericity. Just with normality and homogenity, sphericity brings it's own suite of NHSTs[^1] (H0: there's no departure from norm./homog./sphere.), the most commonly used being the _Mauchly Test for Sphericity_. In this case, no violation was spotted, so we can ignore the Greenhouse-Geisser and Hyunh-Feldt parts of the output.
+
+Now, since ANOVA is an omnibus test, all we know now is: there are diiferences. Neither do we know between which levels nor how big these are. For example, looking at the interaction plot from before, it's not too far off to assume the PI being different in every category to every other category, but which categories differ between runs is not so easily spotted. That's where estimated marginal means come in:
+
+```{r pi_posthoc}
+pi_posthoc <- emmeans(pi_aov, ~Run*Condition)
+
+pi_posthoc
+```
+
+Now we can compare the CIs of every condition between runs and see that only CIs of the middle condition just ever so slighlty don't overlap. This means there hasn't really been any effect of the modulation to speak of. We can, however, see big differences in the categories, although this merely tells us the stimuli worked as intended.
+
+[^1]: Which in turn bring their own little bag of problems that reserve them their special palce in statistics-hell for all eternity, but let's not get into that.
+
+## Re-do analysis with `brms`
+
+This will be more straight-forward: there are no requirements for equal group size (e.g. a balanced design matrix) or necessary assumptions about a parameter's sampling distribution in BDA, which is (to put it mildly) quite convenient -- although it doesn't really matter in this case, because the data is already prepared.
+
+We could look at a fixed effects model that only compares PI scores between Runs (and Conditions), but this doesn't actually make sense, since then we ignore that participants took part in every observational cell. The opposite, a model random effects model that accounts for intercepts for both Runs and Coditions also makes no sense (for the aggregated data), because every participant only went through every cell _once_, so there's no variance to account for. We could, though, account for individual variation between subjects, just as we did in the ANOVA above.
+
+I start off with a model that does just that, similar to the ANOVA model. In this analysis though, there will be no omnibus test like with the ANOVA, but the cells of the design matrix will be directly contrasted against the baseline of "Run 1 - B_mid_low". 
+
+```{r pi_brm, cache=TRUE}
+# pi_brm <- brm(PI ~ Run * Condition + (1|ID), data = rab)
+# saveRDS(pi_brm, "stanfits/pi_brm_all_fixed.rds")
+pi_rnd_id <- readRDS("stanfits/pi_random_subject.rds")
+
+summary(pi_rnd_id)
+```
+
+### Questions / Note
+
+1. Do subj react differently on Run and Codition?
+2. I probably want to know Correlations between single Conditions between runs; corrs between conditions maybe not as much; between subjects not at all (?)
+
+**To Do:**
+
+- add varying intercepts to model (by Run and Coodition) $\rightarrow$ figure out if that makes any sense first
+- add varying slopes (run & cond) $\rightarrow$ again, make sure bla
+- add correlations between 'em (by this time, it will have been made sure)
+
+
+### ...about that:
+
+I think, although every participant ran through every observational cell and therefore having a full within-subect design, by aggregation they only ran through every cell _once_ and thus it's making no sense (e.g. the design doesn't allow for) having varying slopes and intercepts for `Run` and `Condition`:
+
+```{r explore1}
+rab %>% 
+  filter(ID == "RaBp_010") %>% 
+  count(Run, Condition) %>% 
+  ggplot(aes(x = Condition, y = Run, label = n)) +
+    geom_label()
+```
+
+
+## Expand Models
+
+# here be dragons
+
+**Posterior Distributions of... Correlations?**
+
+```{r explore2}
+tidy_pi_fixed %>% 
+  filter(str_detect(Parameter, "r_ID")) %>% 
+  ggplot(aes(value)) +
+    geom_density() + 
+    scale_x_continuous(limits = c(-1, 1)) + 
+    facet_wrap(~Parameter, nrow = 4, scales = "free")
+```
+
+**Posterior Distributions of Parameters**
+
+```{r explore3}
+tidy_pi_fixed %>% 
+  filter(!str_detect(Parameter, "r_ID")) %>% 
+  ggplot(aes(value)) + 
+  geom_density() + 
+  facet_wrap(~Parameter, scales = "free")
+```
