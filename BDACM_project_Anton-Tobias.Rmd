@@ -1,13 +1,15 @@
 ---
 title: "Rain and Bayes"
 author: "Tobias Anton"
-date: "27 March 2019"
+date: 'last knitted: `r format(Sys.time(), "%d.%m.%Y - %H:%M")`'
 output: 
   html_document:
     highlight: kate
     theme: lumen
     toc: yes
     toc_float: yes
+    code_folding: hide
+    df_print: paged
 ---
 
 ```{r init, message=FALSE}
@@ -18,6 +20,7 @@ library(emmeans)
 library(brms)
 library(rstan)
 # library(ggmcmc)
+library(kableExtra)
 
 # make myself feel at home
 theme_set(hrbrthemes::theme_ipsum_rc())
@@ -31,48 +34,47 @@ afex_options(emmeans_model = "multivariate") # as advised by the author for repe
 
 # Introduction & Outline
 
-In my bachelors thesis I helped planning and then conducted and analyzed a decision making (DM) experiment. There are at least two major paradigms present in DM: the _heuristics and biases_ based off Kahnemann & Tversky's research and Gerd Gigerenzers _adaptive toolbox_. It's impossible to honor the vast body of research and knowledge coming from these when summarising them in only one or two sentences, but for brevity's sake: The first paradigm states humans are making decisions by 
+In my bachelors thesis I helped planning and then conducted and analyzed a judgement & decision making (JDM) experiment. JDM is one of the major branches of cognitive psychology with interdisciplinary branches in virtually all fields of science - not by chance are papers in the field usually starting with something like "everybody makes decisions all the time" or similar (this sentence being no exception). The group I was working with identified two major problems wit current JDM research: One is the lack of ecological validity in a majority of experiments; most people just don't have to deal with major political decisions or have to split sums of money between strangers. The other one is a lack of reasearch into how strategies get formed and possibly rejected again or deviated from. The _Rain and Brain_ experiment tries to contribute in resolving these problems.
 
 
-# The "Rain and Brain" experiment
+## The "Rain and Brain" experiment
 
-In the _Rain and Brain_ experiment participants are presented ambiguous information in a relatable (that is, ecologically valid) setting based on which they have to make a decision. The first information is a numerical chance of rain, the second is "a view out the window" depicting varying degrees of cloudyness. Based on these, the participant had to decide on whether to take an umbrella with them or not.  
+In the _Rain and Brain_ experiment participants are presented ambiguous information in a relatable (that is, ecologically valid) setting based on which they have to make a decision. The first information is a numerical chance of rain, the second is "a view out the window" depicting varying degrees of cloudyness. Based on these, the participant had to decide on whether to take an umbrella with them or not. 
 
 ```{r stim_examples, out.width="50%", echo=FALSE, fig.cap="Examples of presented stimuli."}
 knitr::include_graphics("example_stimuli.png")
 ```
 
 
-Further, in this iteration of the experiment, after every decision the participants were shown a short video clip about how the day turned out: either a sunny or rainy day. The introduction of feedback to the experiment allowed for experimental modulation:  
-The first and last third of the experimental trials of stimuli/decision/feedback combinations were identical and consisted of congruent forecast/sky trials (low forecast percentages & rather clear sky, or high percentage and rather cloudy sky) with accurate feedback (it actually "rained" on 20% of the trials with a 20% forecast with rather blue sky). The second third, though, showed the complete range of weather forecasts, but only ambiguous sky-pictures and also gave rainy feedback in 90% of the trials regardless, aiming to increase participants confidence in the sky-pictures.
+Further, in this iteration of the experiment, after every decision, the participants were shown a short video clip about how the day turned out: either a sunny or rainy day. The introduction of feedback to the experiment allowed for experimental modulation:  
+The experiments consists of two runs with a short break in between. "Behind the scenes" though, so to speak, there have been three parts: The first and last block of the experimental trials of stimuli/decision/feedback sequences were identical and consisted of rather congruent forecast/sky combinations (low forecast percentages & rather clear sky, or high percentage and rather cloudy sky) with accurate feedback (it actually "rained" on 20% of the trials with a 20% forecast with rather blue sky). The second part, though, showed the complete range of weather forecasts, but only ambiguous sky-pictures and also gave rainy feedback in 90% of the trials regardless, aiming to increase participants confidence in the sky-pictures.
 
 ![Sequence of Trials](trial_order.png)
 
-An earlier iteration of the Rain and Brain experiment showed that people tend to place more weight on either one of the given informations. Or put otherwise: their strategies relied on either following their guts and rely on the sky pictures or they rather placed their trust in the "hard facts" implied by a numerical forecast. The aim of the experimental modulation via the feedback videos was to see if participants would alter their strategies and become more conservative when confronted with unreliable information.
+An earlier iteration of the Rain and Brain experiment showed that people tend to place more weight on either one of the given informations. Or put otherwise: their strategies relied on either following their guts and rely on the sky pictures or they rather placed their trust in the "hard facts" implied by a numerical forecast. The aim of the experimental modulation via the feedback videos was to see if participants would alter their strategies and more often take an umbrella with them when confronted with unreliable information.
 
-There are two depent variables in this experiment: the Preference Index (PI) and the Response Time (RT). The PI is simply the relative frequency of decisions in favor of the umbrella, while the RT is the time it took the participants to decide on the situation. While the RT could be used as is, the PI needs to be calculate first. This can be done several ways, depending on the model; by run, by combination of forecast/sky picture or, as was done in the original analysis, by groups of combinations, which haven been shown to be reasonable in the former iteration of the experiment. 
+There were several depent variables in this experiment: a Preference Index (PI), a Consistency Index and the Response Time. The PI is the relative frequency of decisions in favor of the umbrella in a given forecast/sky combination, the Consistency Index intended to measure how consistent a participants decions were in those combinations and the RT is simply the time it took the participants to decide on a given situation. Here I will focus on the analysis of the PI only. In order to analyse the PI, it needs to be calculated first. The PI of stimulus combinations can be aggegated by run only, by combination of forecast/sky picture or, as was done in the original analysis, by further aggregated groups of combinations, which haven been shown to be reasonable in the former iteration of the experiment (see [Preparation]). 
 
-## Original Hypotheses
+## Hypotheses
 
-For the comparison between bayesian and frequentist results I will focus on the analysis of the PI only. 
+There are two main hypotheses:
 
-There have been two hypotheses:
+As already said, certain stimulus combinations get aggregated into into larger groups. To replicate the findings of the earlier experiment, the first hypothesis is:
 
-As already said, certain stimulus combination get aggregated into into larger groups. To replicate the findings of the earlier experiment, the first hypothesis is:
-
-**H1:** The PI should increase with a higher chance of rain as implied by the stimulus combinations. The PI in every group should be different in each group.
+**H1:** The PI should increase with a higher chance of rain as implied by the stimulus combinations. The PI in every group should be different in each condition.
 
 The second hypothesis is about the modulation:
 
-**H2:** Since the feedback is biased towards rain, participants are expected to take an umbrella with them more often after the modulation. The PI should increase between in every group.
+**H2:** Since the feedback is biased towards rain, participants are expected to take an umbrella with them more often after the modulation (in Run 2, that is). The PI should increase between runs in every condition.
 
-## Goal of this project
+Both **H1** and **H2** will be split into smaller statistical hypotheses during the analysis.
 
-The first goal will be to repeat the original analysis and repeat it in a bayesian framework, then compare findings. Afterwards I will try to improve upon the bayesian model by introducing random slopes, if applicable, and compare models once more.
+### Outline of this project
+
+First I will repeat the original analysis in a frequentist framework. After that I will repeat it in a bayesian and finally I will compare the findings and reflect upon possible differences and/or similarities.
+
 
 # The data
-
-
 
 ## Raw data
 
@@ -88,7 +90,7 @@ The data already is in tidy format, but still far from useable. A few words on t
 - `ID`: the participant identifier, 20 participants in total
 - `Run`: the stage of the experiment; as stated before, conceptually there are 3 stages (first & last identical, middle stage modulated), but in order to mask this, there have been 2 Runs for the participants with a short break in between
 - `Forecast`: the chance of rain as given by the forecast; from 10% to 90% in steps of 10
-- `Window`: the sky picture, numbers increasing with cloudyness; 9 in total (1 = clear sky, 9 = many dark clouds)
+- `Window`: the sky picture, numbers increasing with cloudyness; 9 in total (1 = clear blue sky, 9 = many dark clouds)
 - `Decision`: the decision made by the participants (sloppily labeled in german)
 - `Feedback`: the feedback video shown for that trial (won't be considered in this analysis)
 - `TTime`: the response time in milliseconds
@@ -97,7 +99,7 @@ The data already is in tidy format, but still far from useable. A few words on t
 
 A look at the discriptives and the number of stimulus combinations:
 
-```{r data_description}
+```{r data_description, paged.print=FALSE}
 rab_raw %>% 
   skimr::skim()
 
@@ -117,7 +119,7 @@ As stated before, the data needs to be prepared before being analyzed:
 - the data contains the modulation-trials:  
   since we are only interested in the difference in PI before and after the modulation, we need to remove all trials beyond the 165th of the first run and before the 46th of the second run
 - the design matrix is strongly unbalanced:  
-  this can cause huge problems with frequentist ANOVA, so we will aggregate the data into stimulus conditions in order to balance it (even though it's not necessary for BANOVA)
+  this can cause huge problems with frequentist ANOVA, so we will aggregate the data into stimulus conditions in order to balance it 
 - no filter criteria have been defined & applied:  
   participants were asked to make a conscious decision but also not to overthink it, we therefore need to remove all trials with a decision made within 200ms and that took longer than 3 seconds
 
@@ -168,9 +170,10 @@ rab %>%
                     str_detect(Condition, "D") ~ 2,
                     str_detect(Condition, "E") ~ 3)
   ) %>% 
-  count(sky, fc) %>% 
+  count(sky, fc, Condition) %>% 
   ggplot(aes(sky, fc, fill = n)) +
     geom_tile(color = "white", size = .5) +
+    geom_label(aes(label = Condition), color = "white") +
     labs(title = "Number of observations for every stimulus condition",
          x = "Window", y = "Forecast")
 ```
@@ -214,27 +217,25 @@ ggplot(rab, aes(x = Run, y = PI, color = Condition, shape = Condition)) +
        caption = "single datapoints slightly jittered horizontally")
 ```
 
-We can already see some key differences: the PI differs greatly between conditions and seems to increase slightly between runs, which hints at an effect caused by the modulated video-feedback.
-
+We can already see some key aspects regarding the hypotheses: the PI differs greatly between conditions and seems to increase slightly between runs, which hints at an effect caused by the modulated video-feedback.
 
 # Analysis
 
 I will analyze the data in three steps:
 
 1. repeat the frequentist analysis I did originally
-2. re-do the analysis in Bayes, then compare results
+2. re-do the analysis in Bayes
 3. compare both
-4. extend the model and evaluate both
 
 ## Repeat Frequentist Analysis
 
 Since this report should be mostly about the bayesian approach, I will skip an in-depth discussion about necessary assumptions and post-hoc procedures for brevity.
 
-In the original analysis, two two-factor-repeated-measures ANOVAs were computed. The two factors are Condition (with levels "mid_low", "mid_mid" and "mid_hi") and Run (1 and 2), with PI and RT being the dependent variable for each model respectively. According to John Kruschkes definition, this is a complete within-subject design, since every subject completes every observational cell of the resulting 2x6 design matrix.
+In the original analysis a two-factor-repeated-measures ANOVAs was computed. The two factors are Condition (with levels "mid_low", "mid_mid" and "mid_hi") and Run (1 and 2), with PI being the dependent variable. This amounts to a complete within-subject design, since every subject completes every observational cell of the resulting 2x6 design matrix.
 
 In the case of significant results, post-hoc analyses were conducted by calculating the estimated marginal means with a 95% Confidence Interval.
 
-For this I'll mostly use the `afex` package, which basically simplifies the code a bit and uses Type III Sum of Squares by default, which should be used when expecting an interaction between predictors (which we do). 
+For this I'll use the `afex` packages, which basically simplifies the code a bit and uses reasonable defaults, such as using Type III Sum of Squares by default, which should be used when expecting an interaction between predictors (which we do). 
 
 ```{r pi_aov}
 # Error() declares ID as the within-subject-variable over both Run and Condition
@@ -243,11 +244,11 @@ pi_aov <- aov_car(PI ~ Run * Condition + Error(ID / Run+Condition), rab)
 summary(pi_aov)
 ```
 
-In short: looking at the output of the `ANOVA Assuming Sphericity`, because _p_ < .05 in all conditions, we reject the null hypothesis and conclude there to be meaningful differences between runs (_p_ = .002), between conditions (_p_ < .001) and their interaction (_p_ = .034).
+We're looking at the output of the `ANOVA Assuming Sphericity`. We reject the null hypothesis (there are no differences between runs and conditions) because _p_ < .05 in all factors, and conclude there to be meaningful differences between runs (_p_ = .002), between conditions (_p_ < .001) and their interaction (_p_ = .034).
 
-In long: In repeated measures ANOVA, not only homogenity of variance is important, but also sphericity. Just with normality and homogenity, sphericity brings it's own suite of NHSTs[^1] (H0: there's no departure from norm./homog./sphere.), the most commonly used being the _Mauchly Test for Sphericity_. In this case, no violation was spotted, so we can ignore the Greenhouse-Geisser and Hyunh-Feldt parts of the output.
+More detailed: In repeated measures ANOVA, not only homogenity of variance is important, but also sphericity. Just with normality and homogenity, sphericity brings it's own NHST, the _Mauchly Test for Sphericity_ (H0: there's no departure from sphericity). In this case, no violation was spotted (_p_ > .05), so we can ignore the Greenhouse-Geisser and Hyunh-Feldt parts of the output.
 
-Now, since ANOVA is an omnibus test, all we know now is: there are diiferences. Neither do we know between which levels nor how big these are. For example, looking at the interaction plot from before, it's not too far off to assume the PI being different in every category to every other category, but which categories differ between runs is not so easily spotted. That's where estimated marginal means come in:
+Now, since ANOVA is an omnibus test, all we know now is: there are some diiferences. Neither do we know between which levels nor how big these are. For example, looking at the interaction plot from before, it's not too far off to assume the PI being different in every category to every other category, but which categories differ between runs is not so easily spotted. That's where we'll compute the estimated marginal means of the levels:
 
 ```{r pi_posthoc}
 pi_posthoc <- emmeans(pi_aov, ~Run*Condition)
@@ -267,7 +268,7 @@ pi_posthoc %>%
     geom_line(lty = "dotted") +
     geom_point() +
     scale_color_brewer(palette = "Set1") +
-    labs(title = "Estimated Marginal Means of PI & 95% CI",
+    labs(title = "Estimated Marginal Means of PI & 95% Conf.Int.",
          y = "Emmean (%)")
 ```
 
@@ -279,7 +280,7 @@ There are no requirements for equal group size (e.g. a balanced design matrix) o
 
 We could look at a fixed effects model that only compares PI scores between Runs (and/or Conditions), but this doesn't actually make sense, since then we ignore that participants took part in every observational cell. Likewise, a random effects model that accounts for intercepts for both Runs and Coditions also makes no sense (for the aggregated data), because every participant only went through every cell _once_, so there's no variance to account for in that regard. We can, though, account for individual variation between subjects, just as we did in the ANOVA above.
 
-I start off with a model that does just that. Different from the ANOVA though, there will be no omnibus test & post-hoc comparison like with the ANOVA, but the cells of the design matrix will be directly contrasted against a baseline. This means we're not looking at estimates of the PIs themselfes but at the differences between a given comparison, or put otherwise, a direct estimate of effect size. We can, however, get estimates of the PIs nonetheless by adding the respective differences back to the baseline.
+Different from the ANOVA though, there will be no omnibus test & post-hoc comparison, but the cells of the design matrix will be directly contrasted against a baseline. This means we're not looking at estimates of the PIs themselfes but at the differences between a given comparison, or put otherwise, a direct estimate of effect size. We can, however, get estimates of the PIs nonetheless by adding the respective differences back to the baseline.
 
 ```{r pi_rnd_id, cache=TRUE, fig.height=8}
 # pi_brm <- brm(PI ~ Run * Condition + (1 | ID), data = rab)
@@ -295,20 +296,135 @@ summary(pi_rnd_id)
 ```
 
 
-These traceplots definitely look like ["a bunch of hairy caterpillars madly in love with each other"](https://michael-franke.github.io/BDACM_2017/slides/06_MCMC_unshined.html#33), which is good. A look at the summary statistics tells us all $\hat{R}$ values are approximately 1, also good. With that we can continue with the analysis.
+These traceplots definitely look like ["a bunch of hairy caterpillars madly in love with each other"](https://michael-franke.github.io/BDACM_2017/slides/06_MCMC_unshined.html#33), which is good. A look at the summary statistics tells us all $\hat{R}$ values are approximately 1, also good. This means we can continue with the analysis.
 
 
+Next up is calculating the likelihood for each hypothesis being true as well as the differences in PIs with a 95% Credible Interval:
 
-## Comparison
+```{r pi_rnd_id_results}
+# prepare table
+h1 <- "H1: PI between Conditions"
+h2 <- "H2: PI between Runs"
 
-### Questions / Note
+h11 <- "Run 1: Mid-Low < Mid-Mid"
+h12 <- "Run 1: Mid-Mid < Mid-Hi"
+h13 <- "Run 2: Mid-Low < Mid-Mid"
+h14 <- "Run 2: Mid-Mid < Mid-Hi"
 
-1. Do subj react differently on Run and Codition?
-2. I probably want to know Correlations between single Conditions between runs; corrs between conditions maybe not as much; between subjects not at all (?)
+h21 <- "Mid-Low: Run 1 < Run 2"
+h22 <- "Mid-Mid: Run 1 < Run 2"
+h23 <- "Mid-Hi: Run 1 < Run 2"
 
-**To Do:**
+sub_hypotheses <- c(h11, h12, h13, h14, h21, h22, h23)
 
-- add varying intercepts to model (by Run and Coodition) $\rightarrow$ figure out if that makes any sense first
-- add varying slopes (run & cond) $\rightarrow$ again, make sure bla
-- add correlations between 'em (by this time, it will have been made sure)
+# calculate probabilities & effects
+m1_estimates <- posterior_samples(pi_rnd_id) %>% 
+  transmute(
+    r1_mi_lo = b_Intercept,
+    r2_mi_lo = b_Intercept + b_RunRun2,
+    r1_mi_mi = b_Intercept + b_ConditionC_mid_mid,
+    r2_mi_mi = b_Intercept + b_ConditionC_mid_mid + b_RunRun2 + `b_RunRun2:ConditionC_mid_mid`,
+    r1_mi_hi = b_Intercept + b_ConditionD_mid_hi,
+    r2_mi_hi = b_Intercept + b_ConditionD_mid_hi + b_RunRun2 + `b_RunRun2:ConditionD_mid_hi`
+  ) 
 
+m1_probs <- m1_estimates %>% 
+  summarise(
+    h11 = mean(r1_mi_lo < r1_mi_mi),
+    h12 = mean(r1_mi_mi < r1_mi_hi),
+    h13 = mean(r2_mi_lo < r2_mi_mi),
+    h14 = mean(r2_mi_mi < r2_mi_hi),
+    h21 = mean(r1_mi_lo < r2_mi_lo),
+    h22 = mean(r1_mi_mi < r2_mi_mi),
+    h23 = mean(r1_mi_hi < r2_mi_hi)
+  ) %>% 
+  gather(Comparison, Probability)
+
+m1_diffs <- m1_estimates %>% 
+  transmute(
+    h11 = r1_mi_mi - r1_mi_lo,
+    h12 = r1_mi_hi - r1_mi_mi,
+    h13 = r2_mi_mi - r2_mi_lo,
+    h14 = r2_mi_hi - r2_mi_mi,
+    h21 = r2_mi_lo - r1_mi_lo,
+    h22 = r2_mi_mi - r1_mi_mi,
+    h23 = r2_mi_hi - r1_mi_hi
+  ) %>% 
+  gather(hypo, smpl) %>% 
+  group_by(hypo) %>% 
+  summarise(
+    difference = mean(smpl),
+    CI_lo = quantile(smpl, .025),
+    CI_up = quantile(smpl, .975)
+  )
+```
+
+```{r m1_results1}
+# print results in a nice table
+tibble(
+  # "Main Hypothesis" = c(rep(h1, 4), rep(h2, 3)),
+  "Comparison" = sub_hypotheses,
+  "Likelihood" = m1_probs$Probability
+) %>% 
+  kable(caption = "Likelihoods for each (sub-) hypothesis") %>% 
+  kable_styling(c("striped", "condensed"), full_width = TRUE) %>% 
+  pack_rows(h1, 1, 4, label_row_css = "background-color: #158CBA; color: #fff;") %>% 
+  pack_rows(h2, 5, 7, label_row_css = "background-color: #158CBA; color: #fff;")
+```
+
+We can now conclude every hypothesis to be true, except for H2.3 ("PI in condition Mid-Hi increases between runs"), at least to some degree. When inspecting the differences in the PI, the results become more nuanced, though: For all comparisons regarding **H1**, we can still conclude huge differences between conditions, as no CI of the differences includes 0.  
+
+The differences of **H2** are more interesting:  
+The only difference, whose CI _doesn't_ include 0 is between the "Mid-Mid" Condition between runs, so we conclude there be an effect of the modulation somewhere between about 5 and 18 percent. Similarly distinct are the results for the difference of "Mid-Hi", but we already concluded it's not sufficiently likely to find any kind of effect anyway. This leaves the difference in "Mid-Low". Strictly speaking, we have to conclude there to be no effect, since the CI includes the 0, but I'll come back to that in the comparison. As we did with the ANOVA, we can plot the results and can even visualize the density of the parameters:
+
+```{r m1_results2}
+m1_diffs %>% 
+  map_if(is.numeric, round, 3) %>% 
+  as_tibble() %>% 
+  transmute(
+    "Comparison" = str_replace(sub_hypotheses, "<", "to"),
+    "PI Difference" = difference,
+    "95% Cred.Int." = paste0("[", CI_lo, "; ", CI_up, "]")
+  ) %>% 
+  kable(caption = "Differences in comparisons for each (sub-) hypothesis") %>% 
+  kable_styling(c("striped", "condensed"), full_width = TRUE) %>% 
+  pack_rows(h1, 1, 4, label_row_css = "background-color: #158CBA; color: #fff;") %>% 
+  pack_rows(h2, 5, 7, label_row_css = "background-color: #158CBA; color: #fff;")
+```
+
+```{r m1_results_plot}
+m1_plot_raw <- m1_estimates %>% 
+  gather(Param, Samples) %>% 
+  mutate(
+    Run = ifelse(str_detect(Param, "r1"), "Run 1", "Run 2"),
+    Condition = str_remove_all(Param, "r\\d_")
+  )
+  
+m1_plot_sum <- m1_plot_raw %>% 
+  group_by(Run, Condition) %>% 
+  summarise(
+    mean = mean(Samples),
+    q025 = quantile(Samples, .025),
+    q975 = quantile(Samples, .975)
+  )
+
+ggplot(m1_plot_raw, aes(x = Run, y = Samples, color = Condition)) +
+  geom_violin(draw_quantiles = c(.025, .975),
+              position = "identity", size = .2) +
+  # geom_jitter(data = rab, aes(y = PI),
+  #             size = .5, alpha = .5, height = 0, width = .2) +
+  geom_pointrange(data = m1_plot_sum, aes(y = mean, ymin = q025, ymax = q975),
+                  fatten = 3) + 
+  labs(y = "PI Estimate", title = "Density, Mean & 95% CI of estimated Parameters")
+```
+
+# Comparison & Conclusion
+
+Both procedures lead to the same conclusion about **H1**: the constructed stimulus conditions are well distinguishable in terms of Preference Index. Looking at the descriptives though, every other result would be highly surprising. 
+
+Things get interesting when looking at the results regarding **H2**. Here, surprisingly to me, the analyses yield different results. Looking at the EMMeans from the ANOVA suggests no difference in PI between runs -- at least there's not enough evidence to reject the Null. 
+
+In the bayesian data analysis though, I looked at two ways to answer the question of wheter or not the modulation increases PI: the likelihood of the hypothesis being true on the one hand, and the Credible Interval of the difference between runs on the other. Because we can make direct statements about the parameters of interest via their posterior distribution, this allows us to draw conclusions that are more reasonable, less arbitrarily restricted and overall more informative.  
+The result of H2.1 (difference between runs in condition "mid-low") is a perfect example: Even though the 95% CI still contains 0, the likelihood of the difference being > 0 is 95.85%. Therefore we may still conclude that there is an effect to be found, just not in this particular experiment. For example one might conduct a repetition of the experiment with a larger sample size to get a narrower estimate of the effect.
+
+My interpretation of the results and by that my opinion on the experiment changed quite a bit. When before I thought it didn't work out as intended at all, not only does it now look like it actually did work, but also it might actually be worth to look into the design again, make some (still much needed) adjustments and repeat the experiment.
